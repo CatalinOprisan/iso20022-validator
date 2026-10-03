@@ -68,7 +68,7 @@ def button_color(at: AppTest) -> str | None:
 
 def test_the_mode_is_called_test_not_paste():
     at = AppTest.from_file(APP).run()
-    assert at.radio[0].options == ["Upload file", "Test", "Generate", "Batch Generate"]
+    assert at.radio[0].options == ["Upload file", "Test", "Generate", "Batch Generate", "Simulate"]
     at.radio[0].set_value("Test").run()
     shown = " ".join(w.label for w in at.text_area) + " " + " ".join(b.label for b in at.button)
     assert "paste" not in shown.lower()

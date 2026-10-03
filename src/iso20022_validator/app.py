@@ -8,18 +8,25 @@ import streamlit as st
 from iso20022_validator import editor
 from iso20022_validator.core import (
     MAX_FILES,
+    REASON_CODES,
+    STATUSES,
     BatchError,
+    Decision,
     MessageFields,
+    SimulationError,
     TemplateError,
     generate,
     generate_batch,
     new_end_to_end_id,
     new_msg_id,
+    read_original,
     read_template,
+    simulate,
     validate_bytes,
 )
+from iso20022_validator.core.simulate import REJECTED, file_name
 
-UPLOAD, TEST, GENERATE, BATCH = "Upload file", "Test", "Generate", "Batch Generate"
+UPLOAD, TEST, GENERATE, BATCH, SIMULATE = "Upload file", "Test", "Generate", "Batch Generate", "Simulate"
 
 _ENCODING_DECL = re.compile(r'^(<\?xml[^>]*?\bencoding\s*=\s*)(["\'])[^"\']*\2', re.IGNORECASE)
 _PLAIN_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -73,11 +80,14 @@ def render_result(result, key: str = "result", goto=None) -> None:
         st.info(f"Schema used: {result.schema_version}")
     if result.valid:
         st.success("VALID")
-        st.caption("Passed the schema and the business rules.")
+        if result.business_rules_apply:
+            st.caption("Passed the schema and the business rules.")
+        else:
+            st.caption("Passed the schema. There are no business rules for this message type yet.")
     else:
         st.error(f"INVALID — {len(result.errors)} error(s)")
         error_list(result.errors, key, goto)
-        if result.schema_version and not result.business_checked:
+        if result.schema_version and result.business_rules_apply and not result.business_checked:
             st.info("Business rules were not checked: fix the schema errors first.")
 
 
@@ -294,6 +304,85 @@ def batch_generate_mode() -> None:
     st.dataframe(outcome.manifest, width="stretch", hide_index=True)
 
 
+# ---- Simulate mode ---------------------------------------------------------------------------
+
+_STATUS_BY_LABEL = {label: code for code, label in STATUSES.items()}
+_REASON_BY_LABEL = {f"{code} · {name}": code for code, name in REASON_CODES.items()}
+
+
+def _on_simulate(data: bytes, count: int, digest: str) -> None:
+    state = st.session_state
+    decisions = []
+    for i in range(count):
+        status = _STATUS_BY_LABEL[state[f"sim_{digest}_status_{i}"]]
+        reason = _REASON_BY_LABEL[state[f"sim_{digest}_reason_{i}"]] if status == REJECTED else None
+        decisions.append(Decision(status, reason))
+    state["sim_result"] = (digest, simulate(data, decisions))
+
+
+def simulate_mode() -> None:
+    """Valid pain.001 in, the bank's pain.002 reply out: one status per transaction, all Accepted by default."""
+    upload = st.file_uploader("Upload a valid pain.001 XML to answer", type=["xml"], key="sim_upload")
+    if upload is None:
+        st.info("Upload a valid pain.001 message to simulate the bank's reply.")
+        return
+    data = upload.getvalue()
+    try:
+        original = read_original(data)
+    except SimulationError as exc:
+        st.error(str(exc))
+        if exc.errors:
+            error_list(exc.errors, "sim_input")
+        return
+
+    digest = hashlib.sha256(data).hexdigest()[:12]
+    st.info(
+        f"Original message {original.msg_id} ({original.schema_version}, created {original.created}). "
+        f"The reply will be a {original.response_version}."
+    )
+    st.caption(f"{len(original.transactions)} transaction(s). Everything is accepted unless you change it.")
+
+    esc = html.escape
+    for i, tx in enumerate(original.transactions):
+        who, status_col, reason_col = st.columns([4, 3, 5], vertical_alignment="center")
+        with who:
+            ids = " · ".join(filter(None, [f"PmtInfId {tx.pmt_inf_id}", f"InstrId {tx.instr_id}" if tx.instr_id else None]))
+            st.html(
+                f'<div style="line-height:1.35;overflow-wrap:anywhere"><b>{esc(tx.end_to_end_id)}</b><br>'
+                f'<span style="font-size:12px;opacity:.75">{esc(ids)} · {esc(tx.amount)} {esc(tx.currency)} → {esc(tx.creditor_name)}</span></div>'
+            )
+        with status_col:
+            status = st.selectbox(
+                f"Status of {tx.end_to_end_id}", list(STATUSES.values()), key=f"sim_{digest}_status_{i}", label_visibility="collapsed"
+            )
+        with reason_col:
+            st.selectbox(
+                f"Reason for {tx.end_to_end_id}",
+                list(_REASON_BY_LABEL),
+                key=f"sim_{digest}_reason_{i}",
+                disabled=_STATUS_BY_LABEL[status] != REJECTED,
+                label_visibility="collapsed",
+            )
+    st.button(
+        "Generate pain.002", key="sim_generate", on_click=_on_simulate, args=(data, len(original.transactions), digest)
+    )
+
+    outcome = st.session_state.get("sim_result")
+    if outcome is None or outcome[0] != digest:
+        return
+    result = outcome[1]
+    if result.ok:
+        st.success(f"Generated a valid {result.schema_version} reply ({result.msg_id}).")
+        st.download_button(
+            "Download pain.002", result.xml, file_name=file_name(result), mime="application/xml", on_click="ignore"
+        )
+        with st.expander("Preview"):
+            st.code(result.xml.decode("utf-8", errors="replace"), language="xml")
+    else:
+        st.error(f"The reply is not valid — {len(result.errors)} error(s). No file was produced.")
+        error_list(result.errors, "sim_result")
+
+
 # ---- Test mode ------------------------------------------------------------------------------
 
 
@@ -334,17 +423,19 @@ def test_mode() -> None:
 
 st.set_page_config(page_title="ISO 20022 Validator", page_icon="✅")
 st.title("ISO 20022 Validator")
-st.caption("v0.4 · pain.001 · schema + business-rule validation, message and test-suite generation")
+st.caption("v0.5 · pain.001 / pain.002 · validation, generation, test suites and simulated bank replies")
 
-mode = st.radio("Input", [UPLOAD, TEST, GENERATE, BATCH], horizontal=True, label_visibility="collapsed", key="mode")
+mode = st.radio("Input", [UPLOAD, TEST, GENERATE, BATCH, SIMULATE], horizontal=True, label_visibility="collapsed", key="mode")
 
 if mode == UPLOAD:
-    upload = st.file_uploader("Upload a pain.001 XML file", type=["xml"])
+    upload = st.file_uploader("Upload a pain.001 or pain.002 XML file", type=["xml"])
     if upload is not None:
         show_result(upload.getvalue())
 elif mode == TEST:
     test_mode()
 elif mode == GENERATE:
     generate_mode()
-else:
+elif mode == BATCH:
     batch_generate_mode()
+else:
+    simulate_mode()

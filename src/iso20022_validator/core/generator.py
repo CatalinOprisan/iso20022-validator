@@ -164,6 +164,8 @@ class TemplateDocument:
         check = validate_schema(data)
         if not check.valid:
             raise TemplateError("The template is not a valid pain.001 message.", check.errors)
+        if not check.schema_version.startswith("pain.001."):
+            raise TemplateError(f"The template must be a pain.001 message, not {check.schema_version}.")
         self._data = data
         tree = _parse(data)
         root = tree.getroot()

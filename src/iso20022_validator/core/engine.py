@@ -19,6 +19,8 @@ from .errors import ValidationError, ValidationResult
 from .rules import check_business_rules
 
 MESSAGES_DIR = Path(__file__).resolve().parent.parent / "messages"
+# Business rules (rules.py) are written for the pain.001 payment initiation; other message types get the schema only.
+BUSINESS_RULE_FAMILIES = ("pain.001.",)
 NS_PREFIX = "urn:iso:std:iso:20022:tech:xsd:"
 
 _NS = re.compile(r"\{(?:urn|https?):[^}]*\}")  # {namespace} prefixes, not regex quantifiers like {2,2}
@@ -43,6 +45,10 @@ def version_label(namespace: str) -> str:
 @lru_cache(maxsize=None)
 def _schema(xsd: Path) -> xmlschema.XMLSchema:
     return xmlschema.XMLSchema(str(xsd))
+
+
+def has_business_rules(schema_version: str) -> bool:
+    return schema_version.startswith(BUSINESS_RULE_FAMILIES)
 
 
 def _clean(reason: str) -> str:
@@ -116,7 +122,10 @@ def _check_schema(data: bytes) -> tuple[ValidationResult, etree._Element | None]
     except xmlschema.XMLSchemaException as exc:
         errors.append(ValidationError(_clean(str(exc)), kind="xml"))
     errors.sort(key=lambda e: (e.line or 0))
-    return ValidationResult(errors, namespace, version_label(namespace)), (None if errors else root)
+    version = version_label(namespace)
+    return ValidationResult(errors, namespace, version, business_rules_apply=has_business_rules(version)), (
+        None if errors else root
+    )
 
 
 def validate_schema(data: bytes) -> ValidationResult:
@@ -130,8 +139,8 @@ def validate_bytes(data: bytes, *, today: date | None = None) -> ValidationResul
     today: the date the execution-date rule compares against (default: the real date).
     """
     result, root = _check_schema(data)
-    if root is None:
-        return result
+    if root is None or not result.business_rules_apply:
+        return result  # schema errors, or a message type without business rules: the schema result is the result
     errors = check_business_rules(root, today or date.today())
     return ValidationResult(errors, result.namespace, result.schema_version, business_checked=True)
 

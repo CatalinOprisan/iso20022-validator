@@ -1,6 +1,16 @@
 from .batch import ERROR_TYPES, MAX_FILES, BatchError, BatchResult, ErrorType, generate_batch
 from .engine import validate_bytes, validate_file
 from .errors import ValidationError, ValidationResult
+from .simulate import (
+    PAIRING,
+    REASON_CODES,
+    STATUSES,
+    Decision,
+    SimulationError,
+    SimulationResult,
+    read_original,
+    simulate,
+)
 from .generator import (
     GenerationResult,
     MessageFields,
@@ -13,6 +23,14 @@ from .generator import (
 )
 
 __all__ = [
+    "PAIRING",
+    "REASON_CODES",
+    "STATUSES",
+    "Decision",
+    "SimulationError",
+    "SimulationResult",
+    "read_original",
+    "simulate",
     "ERROR_TYPES",
     "MAX_FILES",
     "BatchError",

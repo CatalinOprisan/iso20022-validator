@@ -7,7 +7,7 @@ from .core import validate_file
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="iso20022-validate",
-        description="Validate a pain.001 message (schema version detected from the namespace) against the ISO 20022 XSD schema.",
+        description="Validate a pain.001 or pain.002 message (schema version detected from the namespace): XSD, plus business rules for pain.001.",
     )
     parser.add_argument("file", help="XML file to validate")
     args = parser.parse_args(argv)

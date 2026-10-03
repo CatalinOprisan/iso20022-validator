@@ -29,6 +29,7 @@ class ValidationResult:
     namespace: str | None = None  # root namespace, if one was found
     schema_version: str | None = None  # e.g. "pain.001.001.03"; set when a schema was used
     business_checked: bool = False  # business rules only run on a schema-valid message
+    business_rules_apply: bool = True  # False for message types that have no business rules (pain.002)
 
     @property
     def valid(self) -> bool:
@@ -42,6 +43,6 @@ class ValidationResult:
         else:
             lines.append(f"INVALID ({len(self.errors)} error{'s' if len(self.errors) != 1 else ''})")
             lines += [f"  {e}" for e in self.errors]
-            if self.schema_version and not self.business_checked:
+            if self.schema_version and self.business_rules_apply and not self.business_checked:
                 lines.append("Business rules: not checked (fix the schema errors first)")
         return "\n".join(lines)

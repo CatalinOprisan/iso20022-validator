@@ -3,7 +3,7 @@
 Validates ISO 20022 payment messages and reports errors with line number, XML path and schema message.
 Built for QA engineers, fintechs and banks testing payment message flows.
 
-**Status: v0.4** – `pain.001` validation (`pain.001.001.03` and `pain.001.001.09`): XSD schema **and business rules**; an edit-and-revalidate **Test** workspace; message generation from a template; batch test-suite generation (zip + manifest); CLI + Web UI.
+**Status: v0.5** – `pain.001` validation (`pain.001.001.03` and `pain.001.001.09`): XSD schema **and business rules**; an edit-and-revalidate **Test** workspace; message generation from a template; batch test-suite generation (zip + manifest); **simulated bank replies** (`pain.002` status reports); CLI + Web UI.
 
 ## Usage
 
@@ -171,6 +171,58 @@ Limits: only the first transaction of a template is varied. The injected errors 
 invalid file has exactly one error); business-rule errors (wrong `CtrlSum`, bad IBAN checksum, past date) are not
 injected yet.
 
+### Simulated bank reply (v0.5)
+
+The Web UI's **Simulate** mode closes the loop from "validate a message" to "see the bank's answer": it takes a valid
+`pain.001` and builds the matching `pain.002` (Customer Payment Status Report) with a status you choose per transaction.
+
+1. Upload a pain.001 (`.03` or `.09`). It must pass the **schema and the business rules**; otherwise its errors are shown
+   and nothing else happens (like Generate with an invalid template).
+2. The original's `GrpHdr/MsgId` and `CreDtTm`, and per transaction `PmtInfId`, `EndToEndId` and (if present)
+   `InstrId` (and `UETR` for `.09`) are read and every transaction is listed.
+3. Each transaction has a status selector, **Accepted (ACSC) by default**, so the happy path is one click:
+   **Rejected (RJCT)** with a reason-code dropdown (`AC01` Incorrect account number, `AM04` Insufficient funds, `RC01` Bank
+   identifier incorrect, `MS03` Reason not specified, plus `AC04`, `AC06`, `AG01`, `AM05`, `BE01`, `DT01`), or **Pending (PDNG)**.
+4. **Generate pain.002** builds the reply: a new `GrpHdr` (`MsgId` `STS-{YYYYMMDD-HHMMSS}-{4 random A-Z/0-9}`, new `CreDtTm`);
+   `OrgnlGrpInfAndSts` with the original `MsgId`, the original message name (`pain.001.001.03` / `.09`), its `CreDtTm`,
+   `NbOfTxs` and `CtrlSum`, a group status and the number of transactions per status; one `OrgnlPmtInfAndSts` per original
+   `PmtInf`; and one `TxInfAndSts` per transaction with `OrgnlEndToEndId` (and `OrgnlInstrId`, `OrgnlUETR` when the original
+   has them), `TxSts`, and for a rejection `StsRsnInf/Rsn/Cd` with the reason code.
+5. **The reply is validated against its own XSD before it is offered** (the same safety net as Generate). If it were
+   invalid, the errors are shown and **no file is produced**.
+
+The group status (and each `PmtInfSts`) is derived: all transactions alike -> that status; a mix -> `PART`.
+
+#### Which pain.002 answers which pain.001
+
+| pain.001 (request) | pain.002 (reply) | Schema generator build (both files carry the same header) |
+|---|---|---|
+| `pain.001.001.03` | `pain.002.001.03` | SWIFTStandards Workstation R6.1.0.2, 2009 Jan 08 17:30:53 |
+| `pain.001.001.09` | `pain.002.001.10` | Standards Editor R1.6.15, 2019 Feb 14 11:57:59 |
+
+ISO 20022 numbers versions per message family, so the numbers differ (`.09` vs `.10`) although the messages belong
+together. The pairing is taken from the implementation guidelines of the schemes that use these messages, not guessed:
+
+- **`.03` with `.03`**: the EPC SEPA Credit Transfer Customer-to-Bank Implementation Guidelines, version 8.0 (25 Nov 2014,
+  "version 2009 of the ISO 20022 XML message standards") list *"Use of the Customer Credit Transfer Initiation
+  (pain.001.001.03)"* and *"Use of the Customer Payment Status Report (pain.002.001.03)"*, and the status report's
+  *Original Message Name Identification* is `pain.001.001.03`
+  ([EPC132-08 v8.0](https://www.europeanpaymentscouncil.eu/sites/default/files/KB/files/EPC132-08%20C2B%20CTIG%20V8.0%20Approved.pdf)).
+- **`.09` with `.10`**: the 2025 EPC Customer-to-PSP Implementation Guidelines specify *"Customer Credit Transfer Initiation
+  (pain.001.001.09)"* and *"Customer Payment Status Report (pain.002.001.10)"*, in both the SEPA Credit Transfer
+  ([EPC132-08 2025 v1.0](https://www.europeanpaymentscouncil.eu/sites/default/files/kb/file/2024-11/EPC132-08%20SCT%20C2PSP%20IG%202025%20V1.0.pdf)) and the SEPA Instant Credit Transfer
+  ([EPC121-16 2025 v1.0](https://www.europeanpaymentscouncil.eu/sites/default/files/kb/file/2024-11/EPC121-16%20SCT%20Inst%20C2PSP%20IG%202025%20V1.0.pdf)) editions (section 2.2.1); a CBPR+ overview says the same:
+  *"pain.001.001.09 is a Customer Credit Transfer Initiation message. The response to this message is pain.002.001.10"*
+  ([iso20022payments.com](https://www.iso20022payments.com/cbpr/pain-001-pain-002/)).
+- Both pairs also share their release: the two XSDs of each pair were produced by the same generator build on the same
+  timestamp (see the table), i.e. they come from the same ISO 20022 maintenance release.
+
+The EPC PDFs were checked by extracting their text (the version identifiers above are quoted from it); the CBPR+ page is a
+secondary source and agrees. Other pairings (e.g. newer `pain.002` versions) are not supported.
+
+Limits: replies carry statuses only (no charges, tracking data or `OrgnlTxRef` details); `pain.002` is read-only input
+for validation elsewhere (Upload/Test accept it and check the **schema only**, since there are no business rules for it yet).
+
 Out of scope (later): BIC checks, scheme rules (CBPR+, Fedwire, SEPA), AI explanations, other message types
 (pacs.008, pacs.009, camt.*), multi-transaction editing.
 
@@ -184,6 +236,12 @@ Out of scope (later): BIC checks, scheme rules (CBPR+, Fedwire, SEPA), AI explan
 (v0.2) and batch test-suite generation (v0.3) sit beside these layers: they edit a template and always finish by
 validating the result through both.
 
+**Respond** (v0.5) is a third capability beside Generate and Batch Generate: instead of editing a request, it builds the
+*reply* to one (`core/simulate.py`). It reuses the same safety net, validating the generated `pain.002` against its own
+XSD before returning it, and the engine's plugin discovery picks up the `pain.002` schemas like any other folder in
+`messages/`. Business rules are tied to message families (`engine.BUSINESS_RULE_FAMILIES`): `pain.001` gets schema + rules,
+`pain.002` the schema only, and a result says which applies (`business_rules_apply`).
+
 The validation and generation logic is a standalone library; the CLI and Web UI only call it.
 
 Each schema version is a plugin: a folder `messages/<id>/schema.xsd`. The engine discovers plugins by reading each
@@ -193,17 +251,22 @@ folder – the core does not change.**
 ```
 src/iso20022_validator/
 ├── core/                    # engine (namespace detection, XSD + orchestration), rules (business rules),
-│                            # generator (templates), batch (test suites, error types), error model
+│                            # generator (templates), batch (test suites, error types),
+│                            # simulate (pain.001 -> pain.002 reply), error model
 ├── messages/
 │   ├── pain_001_001_03/schema.xsd
-│   └── pain_001_001_09/schema.xsd
+│   ├── pain_001_001_09/schema.xsd
+│   ├── pain_002_001_03/schema.xsd   # reply to pain.001.001.03
+│   └── pain_002_001_10/schema.xsd   # reply to pain.001.001.09
 ├── cli.py
 ├── editor.py                # the Ace XML editor used by the Test mode
-└── app.py                   # Streamlit: Upload file / Test / Generate / Batch Generate
+└── app.py                   # Streamlit: Upload file / Test / Generate / Batch Generate / Simulate
 samples/
 └── pain.001/
     ├── pain.001.001.03/     # valid and invalid examples (+ unsupported namespace); valid_*.xml double as templates
     └── pain.001.001.09/     # valid and invalid examples; valid_two_payments.xml is a 2-transaction template
+                             # valid_three_payments.xml (both folders): 2 PmtInf, 3 transactions, InstrId on two,
+                             # UETR in .09: the input for the Simulate tests
                              # invalid_{ctrlsum_mismatch,nboftxs_mismatch,iban_checksum,past_date}.xml are
                              # schema-valid but break one business rule each (in both folders)
 tests/
@@ -265,6 +328,18 @@ Batch test-suite generation:
 - [x] `manifest.csv` lists every file with its status and, for invalid files, the injected error type
 - [x] Values that cannot make a valid message are refused (no zip); error types are easy to extend
 
+Simulate (pain.001 -> pain.002):
+
+- [x] The pain.001 -> pain.002 pairing is `.03 -> .03` and `.09 -> .10`, with sources (see above)
+- [x] An invalid pain.001 (schema or business rules) shows its errors and nothing is simulated
+- [x] The original `MsgId`, `CreDtTm`, `PmtInfId`, `EndToEndId` (and `InstrId` if present) are read and every transaction is listed
+- [x] Every transaction defaults to Accepted (ACSC): zero clicks for the happy path
+- [x] Rejected needs a reason code (AC01, AM04, RC01, MS03 and more); Pending is PDNG
+- [x] The reply has a new `MsgId`/`CreDtTm`, references the original `MsgId`, and one `TxInfAndSts` per transaction with its
+      `OrgnlEndToEndId`, `TxSts` and, for rejections, `StsRsnInf/Rsn/Cd`
+- [x] The reply is validated against its own XSD before download; an invalid reply is never offered
+- [x] Covered for both pain.001 versions with multi-transaction, multi-`PmtInf` samples and a mix of accepted, rejected and pending
+
 ## Roadmap
 
 | Version | Content |
@@ -273,17 +348,20 @@ Batch test-suite generation:
 | v0.2 | Message generation from a template (key fields, generated IDs) |
 | v0.3 | Batch test-suite generation (valid + invalid files, zip with manifest) |
 | v0.4 | pain.001 business rules (`CtrlSum`, `NbOfTxs`, IBAN checksum, execution date) + **Test** mode (code editor, edit-and-revalidate) |
-| v0.5 | pacs.008 support |
-| v0.6 | Plain-language error explanations |
-| v0.7 | Scheme rules: SWIFT CBPR+, Fedwire |
-| v0.8 | Multi-transaction editing, more error types (incl. business-rule errors), more business rules (BIC, per-country IBAN length) |
+| v0.5 | **Simulate**: pain.002 status report for a pain.001, status per transaction (.03 -> .03, .09 -> .10) |
+| v0.6 | pacs.008 support |
+| v0.7 | Plain-language error explanations |
+| v0.8 | Scheme rules: SWIFT CBPR+, Fedwire |
+| v0.9 | Multi-transaction editing, more error types (incl. business-rule errors), more business rules (BIC, per-country IBAN length) |
 
 ## Sources
 
-Only public schemas are used. iso20022.org blocks scripted downloads, so both XSDs come from public mirrors of the
-ISO 20022 schemas. Compare with the official downloads at iso20022.org before relying on them.
+Only public schemas are used. iso20022.org blocks scripted downloads (404/403, tried for every schema), so all four XSDs come from
+public mirrors of the ISO 20022 schemas. Compare with the official downloads at iso20022.org before relying on them.
 
 | Schema | Generator build (in file header) | Mirror |
 |---|---|---|
 | pain.001.001.09 | Standards Editor R1.6.15, 2019 | <https://github.com/fortesp/xsd2xml> (`tests/resources/`) |
 | pain.001.001.03 | SWIFTStandards Workstation R6.1.0.2, 2009 | <https://github.com/jasperkrijgsman/dutch-sepa-iso20022> (`src/main/resources/`) |
+| pain.002.001.03 | SWIFTStandards Workstation R6.1.0.2, 2009 | <https://github.com/EggBaconAndSpam/iso20022-schemas> (`pain.002.001.03.xsd`; byte-for-size identical to the copy in `sebastienrousseau/pain001`) |
+| pain.002.001.10 | Standards Editor R1.6.15, 2019 | <https://github.com/EggBaconAndSpam/iso20022-schemas> (`pain.002.001.10.xsd`) |
