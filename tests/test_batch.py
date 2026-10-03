@@ -12,6 +12,7 @@ import pytest
 from lxml import etree
 from streamlit.testing.v1 import AppTest
 
+from helpers import select_tab
 from iso20022_validator import validate_bytes
 from iso20022_validator.core import (
     ERROR_TYPES,
@@ -256,7 +257,7 @@ def test_an_error_type_that_does_not_break_the_message_is_never_shipped():
 
 def open_batch(version="pain.001.001.09", name="valid_single_payment.xml") -> AppTest:
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Batch Generate").run()
+    select_tab(at, "Batch Generate")
     at.file_uploader[0].upload(name, template_bytes(version, name), "text/xml").run()
     assert not at.exception
     return at
@@ -312,7 +313,7 @@ def test_ui_bad_base_value_shows_errors_and_no_zip():
 
 def test_ui_invalid_template_is_rejected():
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Batch Generate").run()
+    select_tab(at, "Batch Generate")
     bad = (SAMPLES / "pain.001.001.09" / "invalid_missing_msgid.xml").read_bytes()
     at.file_uploader[0].upload("bad.xml", bad, "text/xml").run()
     assert not at.exception
@@ -322,7 +323,7 @@ def test_ui_invalid_template_is_rejected():
 
 def test_single_generate_mode_still_works_next_to_batch():
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Generate").run()
+    select_tab(at, "Generate")
     at.file_uploader[0].upload("t.xml", template_bytes("pain.001.001.09"), "text/xml").run()
     at.button[0].click().run()
     assert not at.exception

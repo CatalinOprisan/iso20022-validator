@@ -40,6 +40,30 @@ Exit code is `0` for valid, `1` for invalid (also for non-well-formed XML, unsup
 
 ## Scope
 
+### Navigation
+
+The Web UI is organised the way ISO 20022 is: **category -> message type -> mode**.
+
+- **Sidebar, two dropdowns.** *Category* (today only **Payments Initiation**) and *Message type*, filtered by the category:
+  `pain.001` Customer Credit Transfer Initiation and `pain.002` Customer Payment Status Report. The sidebar also names the
+  full title and lists the installed schema versions of the selected message type.
+- **Tabs in the main area**, filtered to what makes sense for the selected message type. Only the open tab is built
+  (so the editor is not created, nor a file validated, in tabs nobody looks at):
+
+  | Message type | Tabs |
+  |---|---|
+  | `pain.001` | Upload file, Test, Generate, Batch Generate, Simulate |
+  | `pain.002` | Upload file, Test (a reply cannot be a template, and there is nothing to simulate from it) |
+
+  Each message type remembers its own open tab when you switch between them.
+- **Detected schema** (sidebar): the exact schema version identified from the uploaded, validated (Test), template or
+  original message, e.g. `pain.001.001.09`; for Simulate also `Generated: pain.002.001.10`. It shows `not recognised` for an
+  unknown namespace, a dash when nothing is detected yet or the file is not XML, and `(last validation)` in Test while the text
+  has been edited since. A file of another message type than the selected one is still validated, with a note.
+- **Categories that have no message type yet** (*Clearing & Settlement*, *Cash Management*, *Administration*) are not
+  in the dropdown, which only offers what exists; the sidebar names them under "Coming soon". The structure is ready for them:
+  see *Adding a message type* below.
+
 ### Validation (v0.1)
 
 - Validate `pain.001` messages against the ISO 20022 XSD.
@@ -248,23 +272,34 @@ XSD before returning it, and the engine's plugin discovery picks up the `pain.00
 
 The validation, generation and simulation logic is a standalone library; the CLI and Web UI only call it.
 
-Each schema version is a plugin: a folder `messages/<id>/schema.xsd`. The engine discovers plugins by reading each
-XSD's `targetNamespace` and picks the one matching the document's root namespace, so **adding a version means adding a
-folder – the core does not change.**
+Each schema version is a plugin, grouped by category: `messages/<area>/<number>/schema.xsd`, e.g.
+`messages/pain/001_001_09/schema.xsd` for `pain.001.001.09` (the folder name is the schema identifier without its area, with
+`_` for `.`; a test checks that every folder matches its schema's `targetNamespace`). The engine discovers plugins by globbing
+`messages/*/*/schema.xsd`, reading each XSD's `targetNamespace` and picking the one matching the document's root namespace, so
+**adding a version means adding a folder – the core does not change.**
+
+**Adding a message type** to the navigation takes two steps and touches no other code: (1) put its schema(s) in
+`messages/<area>/<number>/schema.xsd`; (2) add a `MessageType(family, title, modes)` to its category in
+`catalog.CATALOG` (`catalog.py` has no Streamlit code, so it is testable on its own). A category with no message type is
+"coming soon"; giving it its first one makes it appear in the dropdown. The tests check that every installed schema belongs to
+a catalog entry, that every entry has a schema and that folder names and namespaces agree.
 
 ```
 src/iso20022_validator/
 ├── core/                    # engine (namespace detection, XSD + orchestration), rules (business rules),
 │                            # generator (templates), batch (test suites, error types),
 │                            # simulate (pain.001 -> pain.002 reply), error model
-├── messages/
-│   ├── pain_001_001_03/schema.xsd
-│   ├── pain_001_001_09/schema.xsd
-│   ├── pain_002_001_03/schema.xsd   # reply to pain.001.001.03
-│   └── pain_002_001_10/schema.xsd   # reply to pain.001.001.09
+├── messages/                # schemas, grouped by category: <area>/<number>/schema.xsd
+│   └── pain/                # Payments Initiation
+│       ├── 001_001_03/schema.xsd   # pain.001.001.03
+│       ├── 001_001_09/schema.xsd   # pain.001.001.09
+│       ├── 002_001_03/schema.xsd   # pain.002.001.03, reply to pain.001.001.03
+│       └── 002_001_10/schema.xsd   # pain.002.001.10, reply to pain.001.001.09
+├── catalog.py               # navigation: categories -> message types -> modes (no Streamlit)
 ├── cli.py
 ├── editor.py                # the Ace XML editor used by the Test mode
-└── app.py                   # Streamlit: Upload file / Test / Generate / Batch Generate / Simulate
+└── app.py                   # Streamlit: sidebar (category, message type) + tabs (Upload file / Test / Generate /
+                             #            Batch Generate / Simulate) + detected-schema indicator
 samples/
 └── pain.001/
     ├── pain.001.001.03/     # valid and invalid examples (+ unsupported namespace); valid_*.xml double as templates
@@ -287,6 +322,17 @@ tests/
 - [x] An unsupported namespace gives a clear error naming it
 - [x] The Web UI uses the same library call as the CLI
 - [x] All cases are covered by pytest tests using files in `samples/`
+
+Navigation:
+
+- [x] A sidebar has a *Category* and a *Message type* dropdown; the message types are filtered by the category
+- [x] Only "Payments Initiation" (pain.001, pain.002) has content; the other categories are named as "coming soon" and the
+      structure supports adding them without rework (a catalog entry plus the schema folder)
+- [x] The modes are tabs in the main area, filtered to the selected message type (e.g. Simulate only for pain.001)
+- [x] The sidebar shows the exact detected schema version of an uploaded, validated, template or original message
+- [x] Schemas are grouped by category (`messages/pain/001_001_09/`); plugin discovery follows; validation behaves as before
+- [x] The tests drive the sidebar selections and tabs, check the folder layout against the schemas' namespaces, and a real
+      browser checks the sidebar, the tab filtering and the indicator
 
 Business rules:
 

@@ -11,7 +11,7 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-from helpers import errors_shown, goto_buttons
+from helpers import errors_shown, goto_buttons, select_tab, tab_labels
 from iso20022_validator import validate_file
 from iso20022_validator.editor import annotations_for
 
@@ -35,7 +35,7 @@ def plain_editor(monkeypatch):
 
 def open_test_mode() -> AppTest:
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Test").run()
+    select_tab(at, "Test")
     assert not at.exception
     return at
 
@@ -68,15 +68,15 @@ def button_color(at: AppTest) -> str | None:
 
 def test_the_mode_is_called_test_not_paste():
     at = AppTest.from_file(APP).run()
-    assert at.radio[0].options == ["Upload file", "Test", "Generate", "Batch Generate", "Simulate"]
-    at.radio[0].set_value("Test").run()
+    assert tab_labels(at) == ["Upload file", "Test", "Generate", "Batch Generate", "Simulate"]
+    select_tab(at, "Test")
     shown = " ".join(w.label for w in at.text_area) + " " + " ".join(b.label for b in at.button)
     assert "paste" not in shown.lower()
 
 
 def test_real_ace_editor_renders_without_error():
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Test").run()  # real st_ace component, not the stand-in
+    select_tab(at, "Test")  # real st_ace component, not the stand-in
     assert not at.exception
     assert at.button(key="validate_btn").label == "Validate"
 
@@ -234,9 +234,9 @@ def test_editor_content_is_kept_between_validations_and_mode_switches(plain_edit
     at.button(key="validate_btn").click().run()
     assert at.text_area(key="test_editor").value == text  # still there after a second validation
 
-    at.radio[0].set_value("Upload file").run()
+    select_tab(at, "Upload file")
     assert not at.exception
-    at.radio[0].set_value("Test").run()
+    select_tab(at, "Test")
     assert at.text_area(key="test_editor").value == text  # and after leaving and coming back
     assert at.error and table(at)  # the result for that exact text is shown again
 

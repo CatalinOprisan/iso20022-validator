@@ -8,7 +8,7 @@ import pytest
 from lxml import etree
 from streamlit.testing.v1 import AppTest
 
-from helpers import errors_shown
+from helpers import errors_shown, select_tab
 from iso20022_validator import validate_bytes
 from iso20022_validator.core import (
     TemplateError,
@@ -165,7 +165,7 @@ def test_generated_ids_follow_the_pattern_and_differ():
 
 def open_generate(version: str, name: str = "valid_single_payment.xml") -> AppTest:
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Generate").run()
+    select_tab(at, "Generate")
     at.file_uploader[0].upload(name, template_bytes(version, name), "text/xml").run()
     assert not at.exception
     return at
@@ -258,7 +258,7 @@ def test_ui_multi_transaction_note_is_shown():
 
 def test_ui_invalid_template_is_rejected():
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Generate").run()
+    select_tab(at, "Generate")
     bad = (SAMPLES / "pain.001.001.09" / "invalid_missing_msgid.xml").read_bytes()
     at.file_uploader[0].upload("bad.xml", bad, "text/xml").run()
     assert not at.exception

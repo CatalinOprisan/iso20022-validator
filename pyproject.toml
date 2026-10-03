@@ -19,7 +19,7 @@ iso20022-validate = "iso20022_validator.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-iso20022_validator = ["messages/*/schema.xsd"]
+iso20022_validator = ["messages/*/*/schema.xsd"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

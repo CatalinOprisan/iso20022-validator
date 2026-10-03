@@ -12,7 +12,7 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-from helpers import errors_shown
+from helpers import errors_shown, select_tab
 from iso20022_validator import validate_bytes, validate_file
 from iso20022_validator.editor import annotations_for
 
@@ -106,7 +106,7 @@ def plain_editor(monkeypatch):
 def test_marker_lands_on_the_line_shown_in_the_table(version, plain_editor):
     text = stray_sample(version).read_text(encoding="utf-8")
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Test").run()
+    select_tab(at, "Test")
     at.text_area(key="test_editor").input(text).run()
     at.button(key="validate_btn").click().run()
     assert not at.exception

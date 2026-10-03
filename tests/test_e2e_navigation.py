@@ -78,7 +78,7 @@ def open_app(browser, url, width=1200):
 
 
 def open_test_mode(page):
-    page.get_by_text("Test", exact=True).first.click()
+    page.get_by_role("tab", name="Test").click()
     frame = page.frame_locator("iframe").first
     frame.locator(".ace_gutter").first.wait_for(timeout=15000)
     return frame
@@ -164,4 +164,71 @@ def test_the_browser_tab_and_the_header_show_the_new_name(browser, base_url):
     assert page.title() == "ISO 20022 Validator & Simulator"  # st.set_page_config, i.e. the tab
     assert page.get_by_role("heading", name="ISO 20022 Validator & Simulator").count() == 1
     assert page.locator("[data-testid=stException]").count() == 0  # and the page started without an import error
+    page.close()
+
+
+# ---- navigation: sidebar, tabs, detected schema ----------------------------------------------------------
+
+
+def choose_message_type(page, option: str):
+    sidebar = page.locator("[data-testid=stSidebar]")
+    sidebar.locator("[data-testid=stSelectbox]").nth(1).click()  # Category is the first, Message type the second
+    page.get_by_role("option", name=option).click()
+    time.sleep(1.5)
+
+
+def tab_names(page) -> list[str]:
+    return [t.inner_text().strip() for t in page.get_by_role("tab").all()]
+
+
+def test_the_sidebar_filters_the_tabs_by_message_type(browser, base_url):
+    page = open_app(browser, base_url)
+    sidebar = page.locator("[data-testid=stSidebar]")
+    assert sidebar.is_visible()
+    assert tab_names(page) == ["Upload file", "Test", "Generate", "Batch Generate", "Simulate"]
+    assert sidebar.locator("input[aria-label='Category']").input_value() == "Payments Initiation"
+    assert "Customer Credit Transfer Initiation" in sidebar.inner_text()  # the full title, not cut like the dropdown's
+    assert "Coming soon: Clearing & Settlement, Cash Management, Administration" in sidebar.inner_text()
+
+    choose_message_type(page, "pain.002 · Customer Payment Status Report")
+    assert tab_names(page) == ["Upload file", "Test"]  # Simulate and the generators make no sense for a reply
+    assert "pain.002.001.10" in sidebar.inner_text()  # the schemas of the selected type
+
+    choose_message_type(page, "pain.001 · Customer Credit Transfer Initiation")
+    assert len(tab_names(page)) == 5
+    page.close()
+
+
+def test_the_detected_schema_is_shown_in_the_sidebar(browser, base_url):
+    page = open_app(browser, base_url)
+    sidebar = page.locator("[data-testid=stSidebar]")
+    assert "Detected schema" in sidebar.inner_text()
+    assert sidebar.locator("code").count() == 0  # nothing detected yet: a dash, no schema
+
+    page.set_input_files("input[type=file]", str(ROOT / "samples" / "pain.001" / "pain.001.001.09" / "valid_single_payment.xml"))
+    page.wait_for_selector("text=VALID", timeout=10000)
+    sidebar.locator("code", has_text="pain.001.001.09").wait_for(timeout=10000)  # filled once the whole run is done
+    assert sidebar.locator("code").first.inner_text() == "pain.001.001.09"
+    page.close()
+
+
+def test_each_message_type_keeps_its_own_tab_and_clicking_tabs_works(browser, base_url):
+    page = open_app(browser, base_url)
+    page.get_by_role("tab", name="Generate", exact=True).click()
+    page.wait_for_selector("text=Upload a valid pain.001 XML as a template", timeout=10000)
+    choose_message_type(page, "pain.002 · Customer Payment Status Report")
+    assert page.get_by_role("tab", name="Upload file").get_attribute("aria-selected") == "true"
+    choose_message_type(page, "pain.001 · Customer Credit Transfer Initiation")
+    assert page.get_by_role("tab", name="Generate", exact=True).get_attribute("aria-selected") == "true"  # remembered for pain.001
+    page.close()
+
+
+def test_upload_line_button_switches_the_tab_bar_to_test(browser, base_url):
+    error = validate_file(UPLOAD).errors[0]
+    page = open_app(browser, base_url)
+    page.set_input_files("input[type=file]", str(UPLOAD))
+    page.wait_for_selector(".iso-err", timeout=10000)
+    page.get_by_role("button", name=f"Line {error.line}").click()
+    page.frame_locator("iframe").first.locator(".ace_gutter").first.wait_for(timeout=15000)
+    assert page.get_by_role("tab", name="Test").get_attribute("aria-selected") == "true"
     page.close()

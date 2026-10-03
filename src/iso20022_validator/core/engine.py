@@ -1,6 +1,6 @@
 """Validation engine.
 
-Layer 1, schema: message types are plugins (messages/<id>/schema.xsd). The schema is chosen from
+Layer 1, schema: message types are plugins (messages/<area>/<number>/schema.xsd, e.g. messages/pain/001_001_09/schema.xsd). The schema is chosen from
 the namespace of the root element, matched against each XSD's targetNamespace.
 Layer 2, business rules (rules.py): run only on a schema-valid message.
 A message is valid only if it passes every layer that applies.
@@ -30,7 +30,7 @@ _NS = re.compile(r"\{(?:urn|https?):[^}]*\}")  # {namespace} prefixes, not regex
 def supported_namespaces() -> dict[str, Path]:
     """Map targetNamespace -> XSD path for every installed message plugin."""
     found = {}
-    for xsd in sorted(MESSAGES_DIR.glob("*/schema.xsd")):
+    for xsd in sorted(MESSAGES_DIR.glob("*/*/schema.xsd")):  # messages/<area>/<number>/schema.xsd
         ns = etree.parse(str(xsd)).getroot().get("targetNamespace")
         if ns:
             found[ns] = xsd

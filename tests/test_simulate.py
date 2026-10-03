@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from helpers import errors_shown
+from helpers import errors_shown, select_tab, tab_labels
 from lxml import etree
 from streamlit.testing.v1 import AppTest
 
@@ -267,11 +267,16 @@ def test_a_broken_reply_is_a_schema_error_and_does_not_talk_about_business_rules
 
 def open_simulate(version: str, name: str = "valid_three_payments.xml") -> tuple[AppTest, str]:
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Simulate").run()
+    select_tab(at, "Simulate")
     data = sample(version, name)
     at.file_uploader[0].upload(name, data, "text/xml").run()
     assert not at.exception
     return at, hashlib.sha256(data).hexdigest()[:12]
+
+
+def sim_boxes(at):
+    """The status/reason dropdowns of the Simulate form (the sidebar has selectboxes of its own)."""
+    return [s for s in at.selectbox if s.key.startswith("sim_")]
 
 
 def status_box(at, digest, i):
@@ -288,14 +293,14 @@ def generated(at: AppTest) -> Reply:
 
 def test_simulate_is_a_mode_next_to_the_others():
     at = AppTest.from_file(APP).run()
-    assert at.radio[0].options == ["Upload file", "Test", "Generate", "Batch Generate", "Simulate"]
+    assert tab_labels(at) == ["Upload file", "Test", "Generate", "Batch Generate", "Simulate"]
 
 
 @pytest.mark.parametrize("version", VERSIONS)
 def test_the_transactions_are_listed_with_everything_accepted(version):
     at, digest = open_simulate(version)
     assert any(f"MSG-MULTI-0001 ({version}" in i.value and PAIRING[version] in i.value for i in at.info)
-    assert len(at.selectbox) == 6  # a status and a reason for each of the 3 transactions
+    assert len(sim_boxes(at)) == 6  # a status and a reason for each of the 3 transactions
     html_blocks = " ".join(e.proto.body for e in at.get("html"))
     for e2e in ("E2E-0001", "E2E-0002", "E2E-0003"):
         assert e2e in html_blocks
@@ -351,7 +356,7 @@ def test_an_invalid_pain001_shows_its_errors_and_stops(version, name):
     assert any("not valid" in e.value for e in at.error)
     rows = errors_shown(at)
     assert rows and rows[0]["Type"] in {"schema", "business"}
-    assert len(at.selectbox) == 0 and not at.get("download_button")  # nothing to simulate
+    assert len(sim_boxes(at)) == 0 and not at.get("download_button")  # nothing to simulate
     assert not [b for b in at.button if b.key == "sim_generate"]
 
 
@@ -361,7 +366,7 @@ def test_uploading_another_message_drops_the_old_result():
     assert at.get("download_button")
     other = sample("pain.001.001.03", "valid_two_payments.xml")
     at.file_uploader[0].upload("other.xml", other, "text/xml").run()
-    assert not at.get("download_button") and len(at.selectbox) == 4  # 2 transactions, nothing generated yet
+    assert not at.get("download_button") and len(sim_boxes(at)) == 4  # 2 transactions, nothing generated yet
 
 
 def test_a_reply_uploaded_in_upload_mode_is_valid_and_says_there_are_no_business_rules():

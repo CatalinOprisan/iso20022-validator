@@ -14,7 +14,7 @@ _SRC = str(Path(__file__).resolve().parents[1])
 if sys.path[:1] != [_SRC]:
     sys.path.insert(0, _SRC)
 
-from iso20022_validator import editor  # noqa: E402
+from iso20022_validator import catalog, editor  # noqa: E402
 from iso20022_validator.core import (
     MAX_FILES,
     REASON_CODES,
@@ -33,9 +33,13 @@ from iso20022_validator.core import (
     simulate,
     validate_bytes,
 )
-from iso20022_validator.core.simulate import REJECTED, file_name
+from iso20022_validator.catalog import BATCH, GENERATE, SIMULATE, TEST, UPLOAD  # noqa: E402
+from iso20022_validator.core.simulate import REJECTED, file_name  # noqa: E402
 
-UPLOAD, TEST, GENERATE, BATCH, SIMULATE = "Upload file", "Test", "Generate", "Batch Generate", "Simulate"
+# What this run identified; the sidebar shows it once the page has run (end of the file).
+_DETECTED: dict = {}
+# The sidebar selection of this run.
+_NAV: dict = {}
 
 _ENCODING_DECL = re.compile(r'^(<\?xml[^>]*?\bencoding\s*=\s*)(["\'])[^"\']*\2', re.IGNORECASE)
 _PLAIN_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -45,6 +49,29 @@ def pasted_to_bytes(text: str) -> bytes:
     """Encode pasted text as UTF-8; a declared encoding is rewritten to match, so the parser agrees."""
     text = _ENCODING_DECL.sub(r'\1"UTF-8"', text)
     return text.encode("utf-8")
+
+
+def _mode_key(family: str) -> str:
+    """Session key holding the open tab of a message type, so each message type remembers its own tab."""
+    return f"mode_{family}"
+
+
+def _tabs_key(family: str) -> str:
+    """Key of the tab bar widget itself."""
+    return f"tabs_{family}"
+
+
+def _remember_tab(family: str) -> None:
+    """Runs when a tab is clicked: copy the widget's selection into the remembered tab."""
+    st.session_state[_mode_key(family)] = st.session_state[_tabs_key(family)]
+
+
+def _detect(result) -> None:
+    """Note the schema a validation result identified (or that the namespace was not recognised)."""
+    if result.schema_version:
+        _DETECTED["schema"] = result.schema_version
+    elif result.namespace is not None or any(e.kind == "namespace" for e in result.errors):
+        _DETECTED["schema"] = "not recognised"
 
 
 _KIND_COLORS = {"schema": "#cf222e", "business": "#bf8700", "xml": "#8250df", "namespace": "#8250df"}
@@ -85,8 +112,12 @@ def error_list(errors, key: str, goto=None) -> None:
 
 
 def render_result(result, key: str = "result", goto=None) -> None:
+    _detect(result)
     if result.schema_version:
         st.info(f"Schema used: {result.schema_version}")
+        selected = _NAV.get("family")
+        if selected and catalog.family_of(result.schema_version) != selected:
+            st.caption(f"Note: this message is {result.schema_version}, but {selected} is selected in the sidebar.")
     if result.valid:
         st.success("VALID")
         if result.business_rules_apply:
@@ -106,7 +137,7 @@ def _open_in_test(data: bytes, line: int) -> None:
     st.session_state["test_content"] = text
     st.session_state["test_checked"] = (text, validate_bytes(pasted_to_bytes(text)))
     st.session_state["goto_line"] = line
-    st.session_state["mode"] = TEST
+    st.session_state[_mode_key(st.session_state["nav_family"])] = TEST  # switch the tab bar to Test
 
 
 def show_result(data: bytes) -> bool:
@@ -175,6 +206,7 @@ def _open_template(prefix: str, label: str):
         st.session_state[_key(prefix, "digest")] = digest
         _load_template_into_form(prefix, template)
 
+    _DETECTED["schema"] = template.schema_version
     st.info(f"Template schema: {template.schema_version}")
     if template.transaction_count > 1:
         st.caption(
@@ -345,6 +377,7 @@ def simulate_mode() -> None:
         return
 
     digest = hashlib.sha256(data).hexdigest()[:12]
+    _DETECTED["schema"] = original.schema_version
     st.info(
         f"Original message {original.msg_id} ({original.schema_version}, created {original.created}). "
         f"The reply will be a {original.response_version}."
@@ -380,6 +413,7 @@ def simulate_mode() -> None:
     if outcome is None or outcome[0] != digest:
         return
     result = outcome[1]
+    _DETECTED["output"] = result.schema_version
     if result.ok:
         st.success(f"Generated a valid {result.schema_version} reply ({result.msg_id}).")
         st.download_button(
@@ -425,26 +459,76 @@ def test_mode() -> None:
         render_result(checked[1], "test", lambda line: state.__setitem__("goto_line", line))
         color_button("validate_btn", checked[1].valid)
     else:
+        _detect(checked[1])
+        _DETECTED["stale"] = True  # the schema is that of the last validation, not of the edited text
         st.caption("The XML has changed since it was last validated. Click Validate to check it again.")
+
+
+# ---- Upload mode -----------------------------------------------------------------------------
+
+
+def upload_mode(message_type: catalog.MessageType) -> None:
+    upload = st.file_uploader(f"Upload a {message_type.family} XML file", type=["xml"], key=f"upload_{message_type.family}")
+    if upload is not None:
+        show_result(upload.getvalue())
 
 
 # ---- Page -----------------------------------------------------------------------------------
 
-st.set_page_config(page_title="ISO 20022 Validator & Simulator", page_icon="✅")
+st.set_page_config(page_title="ISO 20022 Validator & Simulator", page_icon="✅", initial_sidebar_state="auto")
 st.title("ISO 20022 Validator & Simulator")
 st.caption("v0.5 · pain.001 / pain.002 · validation, generation, test suites and simulated bank replies")
 
-mode = st.radio("Input", [UPLOAD, TEST, GENERATE, BATCH, SIMULATE], horizontal=True, label_visibility="collapsed", key="mode")
+# Sidebar: what to work on. Category -> message type (only those that exist); the tabs follow the message type.
+categories = catalog.available_categories()
+with st.sidebar:
+    st.subheader("Navigation")
+    area = st.selectbox(
+        "Category",
+        [c.area for c in categories],
+        format_func=lambda a: next(c.name for c in categories if c.area == a),
+        key="nav_category",
+    )
+    category = next(c for c in categories if c.area == area)
+    family = st.selectbox(
+        "Message type",
+        [t.family for t in category.types],
+        format_func=lambda f: next(t.label for t in category.types if t.family == f),
+        key=f"nav_type_{area}",  # one per category, so each remembers its own choice
+    )
+    message_type = next(t for t in category.types if t.family == family)
+    st.caption(message_type.title)  # the dropdown cuts long labels off in a narrow sidebar
+    st.caption("Schemas: " + ", ".join(message_type.schemas))
+    st.session_state["nav_family"] = _NAV["family"] = family
+    detected_slot = st.empty()  # filled at the end, when this run knows what it identified
+    if coming := catalog.coming_soon():
+        st.caption("Coming soon: " + ", ".join(c.name for c in coming))
 
-if mode == UPLOAD:
-    upload = st.file_uploader("Upload a pain.001 or pain.002 XML file", type=["xml"])
-    if upload is not None:
-        show_result(upload.getvalue())
-elif mode == TEST:
-    test_mode()
-elif mode == GENERATE:
-    generate_mode()
-elif mode == BATCH:
-    batch_generate_mode()
-else:
-    simulate_mode()
+# Main area: the modes of the selected message type as tabs. Only the open tab runs (an on_change callback),
+# so e.g. the editor is not built, nor a file validated, in tabs nobody is looking at.
+RENDERERS = {
+    UPLOAD: upload_mode,
+    TEST: lambda mt: test_mode(),
+    GENERATE: lambda mt: generate_mode(),
+    BATCH: lambda mt: batch_generate_mode(),
+    SIMULATE: lambda mt: simulate_mode(),
+}
+# The open tab is remembered in session state (`mode_<type>`) and put back into the tab bar on every run. That keeps
+# it across runs (and across test harnesses that do not carry widget state), lets code switch tabs (Upload -> Test)
+# by setting that one key, and a click updates it through the callback before the script runs.
+mode_key = _mode_key(family)
+if st.session_state.get(mode_key) not in message_type.modes:
+    st.session_state[mode_key] = message_type.modes[0]
+st.session_state[_tabs_key(family)] = st.session_state[mode_key]
+tabs = st.tabs(list(message_type.modes), key=_tabs_key(family), on_change=_remember_tab, args=(family,))
+for tab, mode in zip(tabs, message_type.modes):
+    with tab:
+        if tab.open:
+            RENDERERS[mode](message_type)
+
+with detected_slot.container():
+    detected = _DETECTED.get("schema")
+    st.caption("Detected schema" + (" (last validation)" if _DETECTED.get("stale") else ""))
+    st.markdown(f"**`{detected}`**" if detected else "**—**")
+    if _DETECTED.get("output"):
+        st.caption(f"Generated: `{_DETECTED['output']}`")

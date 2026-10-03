@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import streamlit as st
-from helpers import errors_shown, goto_buttons
+from helpers import current_tab, errors_shown, goto_buttons, select_tab
 from streamlit.testing.v1 import AppTest
 
 from iso20022_validator import validate_bytes, validate_file
@@ -37,7 +37,7 @@ def fake_editor(monkeypatch):
 
 def in_test_mode(text: str) -> AppTest:
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Test").run()
+    select_tab(at, "Test")
     at.text_area(key="test_editor").input(text).run()
     at.button(key="validate_btn").click().run()
     assert not at.exception
@@ -108,7 +108,7 @@ def test_test_mode_and_upload_mode_show_the_same_errors(path, fake_editor):
 
 def test_generate_and_batch_failures_use_the_same_blocks():
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Generate").run()
+    select_tab(at, "Generate")
     template = (V09 / "valid_single_payment.xml").read_bytes()
     at.file_uploader[0].upload("t.xml", template, "text/xml").run()
     at.text_input(key="gen_amount").set_value("abc")
@@ -118,7 +118,7 @@ def test_generate_and_batch_failures_use_the_same_blocks():
     assert not goto_buttons(at)  # no editor there, so no jump buttons
 
     at = AppTest.from_file(APP).run()
-    at.radio[0].set_value("Batch Generate").run()
+    select_tab(at, "Batch Generate")
     at.file_uploader[0].upload("t.xml", template, "text/xml").run()
     at.text_input(key="bat_amount").set_value("abc")
     at.button[0].click().run()
@@ -174,7 +174,7 @@ def test_upload_mode_line_button_opens_the_file_in_the_editor_at_that_line(versi
 
     button.click().run()
     assert not at.exception
-    assert at.radio[0].value == "Test"  # switched to the editor
+    assert current_tab(at) == "Test"  # switched to the editor
     assert at.text_area(key="test_editor").value == path.read_text(encoding="utf-8")  # holding the file
     assert at.session_state["scrolled_to"] == [expected.line]  # at that line
     assert errors_shown(at)[0]["Line"] == expected.line  # already validated, markers and list in place
