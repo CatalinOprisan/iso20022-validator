@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iso20022-validator"
+version = "0.1.0"
+description = "Validate ISO 20022 payment messages against the official XSD schema."
+requires-python = ">=3.12"
+dependencies = ["xmlschema>=3.0", "lxml>=5", "streamlit>=1.50", "streamlit-ace>=0.1.1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "playwright>=1.40"]
+
+[project.scripts]
+iso20022-validate = "iso20022_validator.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+iso20022_validator = ["messages/*/schema.xsd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
