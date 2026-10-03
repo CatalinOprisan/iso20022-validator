@@ -1,11 +1,20 @@
 import hashlib
 import html
 import re
+import sys
 from datetime import date
+from pathlib import Path
 
 import streamlit as st
 
-from iso20022_validator import editor
+# Run against this repo's copy of the package, never an older one that happens to be installed: a host that
+# installs the project once (e.g. Streamlit Cloud) keeps that copy while later pushes only change the files, and
+# `import iso20022_validator` would then find the stale copy (-> "cannot import name 'REASON_CODES' ...").
+_SRC = str(Path(__file__).resolve().parents[1])
+if sys.path[:1] != [_SRC]:
+    sys.path.insert(0, _SRC)
+
+from iso20022_validator import editor  # noqa: E402
 from iso20022_validator.core import (
     MAX_FILES,
     REASON_CODES,
@@ -421,8 +430,8 @@ def test_mode() -> None:
 
 # ---- Page -----------------------------------------------------------------------------------
 
-st.set_page_config(page_title="ISO 20022 Validator", page_icon="✅")
-st.title("ISO 20022 Validator")
+st.set_page_config(page_title="ISO 20022 Validator & Simulator", page_icon="✅")
+st.title("ISO 20022 Validator & Simulator")
 st.caption("v0.5 · pain.001 / pain.002 · validation, generation, test suites and simulated bank replies")
 
 mode = st.radio("Input", [UPLOAD, TEST, GENERATE, BATCH, SIMULATE], horizontal=True, label_visibility="collapsed", key="mode")

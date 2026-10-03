@@ -157,3 +157,11 @@ def test_upload_mode_line_button_opens_the_file_in_the_editor_at_that_line(brows
     cursor = content.evaluate(CURSOR)
     assert cursor["row"] == error.line and cursor["first"] <= error.line <= cursor["last"]
     page.close()
+
+
+def test_the_browser_tab_and_the_header_show_the_new_name(browser, base_url):
+    page = open_app(browser, base_url)
+    assert page.title() == "ISO 20022 Validator & Simulator"  # st.set_page_config, i.e. the tab
+    assert page.get_by_role("heading", name="ISO 20022 Validator & Simulator").count() == 1
+    assert page.locator("[data-testid=stException]").count() == 0  # and the page started without an import error
+    page.close()

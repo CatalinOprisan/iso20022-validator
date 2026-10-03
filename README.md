@@ -1,7 +1,11 @@
-# ISO 20022 Validator
+# ISO 20022 Validator & Simulator
 
-Validates ISO 20022 payment messages and reports errors with line number, XML path and schema message.
+Validates ISO 20022 payment messages (errors with line number, XML path and a clear message) and simulates the other
+side of the flow: it generates test messages and builds the bank's `pain.002` reply to a `pain.001`.
 Built for QA engineers, fintechs and banks testing payment message flows.
+
+(The Python package, the CLI command and the repository keep their names: `iso20022_validator`, `iso20022-validate`,
+`iso20022-validator`.)
 
 **Status: v0.5** – `pain.001` validation (`pain.001.001.03` and `pain.001.001.09`): XSD schema **and business rules**; an edit-and-revalidate **Test** workspace; message generation from a template; batch test-suite generation (zip + manifest); **simulated bank replies** (`pain.002` status reports); CLI + Web UI.
 
@@ -242,7 +246,7 @@ XSD before returning it, and the engine's plugin discovery picks up the `pain.00
 `messages/`. Business rules are tied to message families (`engine.BUSINESS_RULE_FAMILIES`): `pain.001` gets schema + rules,
 `pain.002` the schema only, and a result says which applies (`business_rules_apply`).
 
-The validation and generation logic is a standalone library; the CLI and Web UI only call it.
+The validation, generation and simulation logic is a standalone library; the CLI and Web UI only call it.
 
 Each schema version is a plugin: a folder `messages/<id>/schema.xsd`. The engine discovers plugins by reading each
 XSD's `targetNamespace` and picks the one matching the document's root namespace, so **adding a version means adding a
